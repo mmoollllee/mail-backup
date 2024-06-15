@@ -11,6 +11,7 @@ class NamingKey(Enum):
     SUBJECT = "SUBJECT"
     TO1 = "TO1"
     FROM = "FROM"
+    FOLDER = "FOLDER"
 
     DATETIME_OBJ = "DATETIME_OBJ"
 

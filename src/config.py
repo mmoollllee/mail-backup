@@ -23,7 +23,11 @@ class ConfigKey(Enum):
     IMAP_PORT = "imap_port"
     IMAP_USERNAME = "imap_username"
     IMAP_PASSWORD = "imap_password"
-    IMAP_FOLDERS = "imap_folders"
+    PATH = "path"
+    LAST_DAYS = "last_days"
+    LIMIT_DAYS = "limit_days"
+    DELETE = "delete"
+    WHEN_EXISTS = "when_exists"
 
 
 class Config:

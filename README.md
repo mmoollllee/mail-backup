@@ -9,15 +9,17 @@ Eml-Files can be viewed at least with Thunderbird, even extracting attachments.
 - Download emails via IMAP as eml files.
 - Configure local storage paths and file names based on email attributes (like date).
 - Handles duplicated backups.
-- Limit/filter by "last days" number.
+- Limit/filter by "newer than x days" number.
+- Limit/filter by "older than x days" number.
+- Delete files from server after backup
 
 Tipp: You may search your emails with a desktop search app, like [Recoll](https://www.lesbonscomptes.com/recoll/).
 
 
 ## Disclaimer
 
-- Tested only on Linux. There is no plan to support Windows, even though there should be only minor issues with path handling.
-- Some (minimal) experience with the Linux command line and YAML files required!
+- Tested only on Linux and macOS. There is no plan to support Windows, even though there should be only minor issues with path handling.
+- Some (minimal) experience with the UNIX command line and YAML files required!
 
 
 ## Start up
@@ -60,23 +62,27 @@ You may configure the storage path per email attributes. Available replacement t
 
 Example:
 ```
-./downloaded/{YEAR}-{MONTH}/{YEAR}{MONTH}{DAY}-{HOUR}{MINUTE}-IN-{FROM}-{SUBJECT}-{UID}.eml
+../{FOLDER}/{YEAR}{MONTH}{DAY}-{HOUR}{MINUTE}-{FROM}-{SUBJECT}-{UID}.eml
 ```
 Gets to:
 ```
-./downloaded/2021-04/20210401-1604-IN-no-reply.company.com-The.subject-123.eml
+./info@example.com/INBOX/20210401-1604-no-reply.company.com-The.subject-123.eml
 ```
 Not existing paths get created automatically. 
 
 All attribute strings get preprocessed in a quite opinionated manner, e.g. UTF-8 characters and white space gets removed. "Fwd:", "Re:" in subjects are removed too.
 
-The handling of already existing mails files can be configured. Just set `when_exists` in `imap_folders` (see [mail-backup.yaml.sample](./mail-backup.yaml.sample)). Available options: 
+The handling of already existing mails files can be configured. Just set `when_exists` (see [mail-backup.yaml.sample](./mail-backup.yaml.sample)). Available options: 
 - `skip`: Skip the email backup if a file with the proposed name already exists. 
 - `overwrite`: Overwrite the email backup if a file with the proposed name already exists.
 - `compare`: Even by using the `UID`, there is no guarantee that different emails get different file names, so emails could get overwritten. 
   In `compare` mode existing files gets compared with downloaded email content and written with a postfixed path ("mail.eml" => "mail.2.eml"). 
 
-With `last_days` in `imap_folders` you can limit the backup to the most recent emails (see [mail-backup.yaml.sample](./mail-backup.yaml.sample)).
+With `last_days` you can limit the backup to the most recent emails (see [mail-backup.yaml.sample](./mail-backup.yaml.sample)).
+
+With `limit_days` you can limit the backup to only backup emails older than specified days (see [mail-backup.yaml.sample](./mail-backup.yaml.sample)).
+
+With `delete` you can define to delete the mails from the server. You will be promped on execution to confirm this!
 
 
 ### Run

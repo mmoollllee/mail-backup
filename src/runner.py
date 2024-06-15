@@ -8,12 +8,13 @@ import socket
 from enum import Enum
 from typing import List, Optional
 
-from imap_tools import MailBox, OR
+from imap_tools import MailBox, AND
 
 from src.config import Config, ConfigKey
 from src.mail_message_ext import MailMessageExt
 from src.message_exception import MessageException
 from src.naming_utils import NamingUtils
+from src.time_utils import parse_time
 
 _logger = logging.getLogger(__name__)
 
@@ -28,42 +29,6 @@ class ExistsMethod(Enum):
 
     def __repr__(self) -> str:
         return '{}'.format(self.name)
-
-
-class FolderConfigKey(Enum):
-    PATH = "path"
-    FILE_PATTERN = "file_pattern"
-    LAST_DAYS = "last_days"
-    WHEN_EXISTS = "when_exists"
-
-    @classmethod
-    def parse(cls, value, default):
-        if isinstance(value, cls):
-            return value
-
-        comp = str(value).lower().strip() if value is not None else value
-        for e in FolderConfigKey:
-            if comp == e.value.lower():
-                return e
-
-        return default
-
-
-class FolderConfig:
-
-    def __init__(self, name):
-        self.name = name
-        self.path = ""
-        self.file_pattern = ""
-        self.last_days: Optional[int] = None  # "None" means all messages
-        self.exists_method = ExistsMethod.COMPARE
-
-    def __str__(self):
-        return '{}: {}, {}'.format(self.name, self.path + '|' + self.file_pattern, self.exists_method)
-
-    def __repr__(self) -> str:
-        return '{}({})'.format(self.__class__.__name__, str(self))
-
 
 class Runner:
 
@@ -84,9 +49,6 @@ class Runner:
             cloned_config = copy.deepcopy(self._config)
             cloned_config[ConfigKey.IMAP_PASSWORD.value] = "***"
             _logger.debug("config = %s", cloned_config)
-
-        self._folder_configs = self.parse_folder_configs(self._config)
-        _logger.debug("folders = %s", self._folder_configs)
 
         self._host = Config.get_str(self._config, ConfigKey.IMAP_HOST)
         self._port = Config.get_int(self._config, ConfigKey.IMAP_PORT)
@@ -119,6 +81,13 @@ class Runner:
         if self._port:
             kwargs["port"] = self._port
 
+        delete = Config.get_bool(self._config, ConfigKey.DELETE)
+        if delete:
+            answer = input("Are you sure you want to delete downloaded messages on the server? (y/n)")
+            if answer.lower() not in ["y","yes"]:
+                _logger.info("Please check your mail-backup.yaml and run again.")
+                return False
+
         with MailBox(**kwargs).login(username, password) as mailbox:
             _logger.info("logged in (%s@%s)", username, self._host_info)
 
@@ -126,38 +95,42 @@ class Runner:
             folders_names = [f.name for f in folders]
             _logger.info("found mail folders = %s", folders_names)
 
-            for folder_config in self._folder_configs:
+            for folder in folders:
                 if self._shutdown:
                     break
 
-                if folder_config.name not in folders_names:
-                    _logger.warning("folder name (%s) not found, skipping!", folder_config.name)
-                    continue
+                mailbox.folder.set(folder.name)
 
-                mailbox.folder.set(folder_config.name)
-
-                query_args = []
-                if folder_config.last_days and folder_config.last_days > 0:
-                    since = datetime.date.today() - datetime.timedelta(days=folder_config.last_days)
-                    query_args = [OR(date_gte=since)]
-
+                last_days = Config.get_int(self._config, ConfigKey.LAST_DAYS)
+                limit_days = Config.get_int(self._config, ConfigKey.LIMIT_DAYS)
+                since = None
+                to = None
+                if last_days and last_days > 0:
+                    since = datetime.date.today() - datetime.timedelta(days=last_days)
+                if limit_days and limit_days > 0:
+                    to = datetime.date.today() - datetime.timedelta(days=limit_days)
+                query_args = [AND(date_gte=since, date_lt=to)] if since or to else []
+                
                 try:
                     for mail in mailbox.fetch(*query_args, mark_seen=False):
-                        self.handle_mail(mail, folder_config)
+                        self.handle_mail(mail, self._config, folder.name)
+                        if delete:
+                            mailbox.delete([mail.uid])
+
                         if self._shutdown:
                             break
                 except Exception as ex:
-                    _logger.error("error in folder: %s", folder_config.name)
+                    _logger.error("error in folder: %s", folder.name)
                     raise ex
 
         _logger.info("success: %s mails saved (of %s found; %s skipped for legal reasons, e.g. already exists).",
                      self._count_saved, self._count_found, self._count_skipped)
 
-    def handle_mail(self, mail: MailMessageExt, folder_config: FolderConfig):
-        attributes = NamingUtils.extract_attributes(mail)
-        mail_path = NamingUtils.format_path(folder_config.path, attributes)
+    def handle_mail(self, mail: MailMessageExt, config: Config, folder: str = ""):
+        attributes = NamingUtils.extract_attributes(mail, Config.get_str(self._config, ConfigKey.IMAP_USERNAME), folder)
+        mail_path = NamingUtils.format_path(Config.get_str(self._config, ConfigKey.PATH), attributes)
         mail_path = os.path.realpath(NamingUtils.join_path(self._pivot_path, mail_path))
-        folder_info = "folder '{}' - ".format(folder_config.name)
+        folder_info = "folder '{}' - ".format(folder)
 
         self._count_found += 1
 
@@ -165,15 +138,16 @@ class Runner:
         do_write = not mail_exists
 
         if not do_write:  # == mail file exists
-            if folder_config.exists_method == ExistsMethod.OVERWRITE:
+            when_exists = Config.get_str(self._config, ConfigKey.WHEN_EXISTS)
+            if when_exists == ExistsMethod.OVERWRITE:
                 os.remove(mail_path)
                 _logger.info("%sremove former mail (%s).", folder_info, mail_path)
                 do_write = True
-            elif folder_config.exists_method == ExistsMethod.SKIP:
+            elif when_exists == ExistsMethod.SKIP:
                 _logger.debug("%sskip existing file (%s).", folder_info, mail_path)
                 self._count_skipped += 1
-            else:  # folder_config.exists_method == ExistsMethod.COMPARE:
-                new_mail_path = self.find_existing_file_or_new_mail_path(mail, mail_path, folder_config)
+            else:  # when_exists == ExistsMethod.COMPARE:
+                new_mail_path = self.find_existing_file_or_new_mail_path(mail, mail_path, config)
                 if new_mail_path:
                     mail_path = new_mail_path
                     do_write = True
@@ -186,22 +160,29 @@ class Runner:
             os.makedirs(mail_dir, exist_ok=True)
             with open(mail_path, "wb") as file:
                 file.write(mail.raw_data)
+
+            # Add file's creation date
+            timestamp = parse_time(mail.date).strftime("%Y%m%d%H%M")
+            now = datetime.datetime.now().strftime("%Y%m%d%H%M")
+            os.system(f"touch -t {timestamp} '{mail_path}'")
+            os.system(f"touch -m {now} '{mail_path}'")
+
             self._count_saved += 1
 
     @classmethod
-    def find_existing_file_or_new_mail_path(cls, mail, orig_mail_path, folder_config: FolderConfig = None) -> Optional[str]:
+    def find_existing_file_or_new_mail_path(cls, mail, orig_mail_path, config: Config = None, folder: str = "") -> Optional[str]:
         """
         :param MailMessageExt mail:
         :param str orig_mail_path:
-        :param Optional[FolderConfig] folder_config: only for logging folder info
+        :param Optional[str] folder: only for logging folder info
         :return: new path to write or None when should not be written
         """
         if not os.path.isfile(orig_mail_path):
             return orig_mail_path
 
         folder_info = ""
-        if folder_config:
-            folder_info = "folder '{}' - ".format(folder_config.name)
+        if config:
+            folder_info = "folder '{}' - ".format(folder)
 
         loop = 0
 
@@ -231,45 +212,3 @@ class Runner:
         _logger.warning("cannot find other path for existing mail (%s). loop (%s) exceeded!", orig_mail_path, loop)
 
         return None
-
-    @classmethod
-    def parse_folder_configs(cls, config):
-
-        def get_value(source, inner_key, inner_error_message):
-            try:
-                return source[inner_key]
-            except KeyError:
-                raise MessageException(inner_error_message)
-
-        key = ConfigKey.IMAP_FOLDERS.value
-        configs = get_value(config, key, "no imap folder configuration found ('{}')!".format(key))
-
-        folder_configs: List[FolderConfig] = []
-
-        for config in configs:
-            folder_name = config.get("folder_name")
-            if not folder_name:
-                raise MessageException("invalid folder configuration (no empty folder name)!")
-
-            folder_config = FolderConfig(folder_name)
-            key = FolderConfigKey.PATH.value
-            error_message = "invalid folder configuration (no '{}' found for '{}')!".format(key, folder_name)
-            folder_config.path = get_value(config, key, error_message)
-            if not folder_config.path:
-                raise MessageException("invalid folder configuration (no empty folder path)!")
-
-            folder_config.file_pattern = config.get(FolderConfigKey.FILE_PATTERN.value, cls.DEFAULT_FILE_PATTERN)
-            folder_config.exists_method = FolderConfigKey.parse(
-                config.get(FolderConfigKey.WHEN_EXISTS.value),
-                cls.DEFAULT_EXIST_METHODE
-            )
-
-            last_days = config.get(FolderConfigKey.LAST_DAYS.value)
-            if isinstance(last_days, int):
-                folder_config.last_days = last_days
-            elif last_days:
-                folder_config.last_days = int(last_days, 0)
-
-            folder_configs.append(folder_config)
-
-        return folder_configs

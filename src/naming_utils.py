@@ -1,11 +1,11 @@
 import os
 import re
-from datetime import datetime
 
 from unidecode import unidecode
 
 from src.mail_message_ext import MailMessageExt
 from src.naming_key import NamingKey
+from src.time_utils import parse_time
 from typing import Dict
 
 
@@ -98,22 +98,24 @@ class NamingUtils:
         return output
 
     @classmethod
-    def extract_attributes(cls, mail: MailMessageExt) -> Dict[str, any]:
+    def extract_attributes(cls, mail: MailMessageExt, username: str, folder: str = "") -> Dict[str, any]:
         attributes = {}
 
         def add_to_attributes(key, value, max_length=cls.MAX_ATTRIBUTE_LENGTH):
             value = cls.prepare_text(value, max_length)
             attributes[key.name] = value
 
+        # Copy servers folderstructure
+        folder = folder.replace('INBOX.', '')
+        folder = cls.prepare_text(folder, cls.MAX_ATTRIBUTE_LENGTH)
+        attributes[NamingKey.FOLDER.name] = username + (f"/{folder}" if folder else "")
+
         add_to_attributes(NamingKey.UID, mail.uid)
         add_to_attributes(NamingKey.FROM, cls.prepare_email(mail.from_))
         add_to_attributes(NamingKey.TO1, cls.prepare_email(mail.to))
         add_to_attributes(NamingKey.SUBJECT, cls.prepare_subject(mail.subject), 50)
 
-        date = mail.date.astimezone(tz=datetime.now().astimezone().tzinfo)
-        if date.year < 1971:
-            date = datetime(0, 1, 1, 0, 0, 0)
-
+        date = parse_time(mail.date)
         add_to_attributes(NamingKey.YEAR, cls.prepare_int(date.year, 4))
         add_to_attributes(NamingKey.MONTH, cls.prepare_int(date.month, 2))
         add_to_attributes(NamingKey.DAY, cls.prepare_int(date.day, 2))
