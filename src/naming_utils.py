@@ -54,6 +54,33 @@ class NamingUtils:
         return value
 
     @classmethod
+    def prepare_path(cls, value, max_length=MAX_ATTRIBUTE_LENGTH) -> str:
+        if value is None:
+            return ""
+
+        value = unidecode(str(value).strip())
+
+        def replace_all(text, old, new):
+            while True:
+                orig_text = text
+                text = text.replace(old, new)
+                if orig_text == text:
+                    break
+            return text
+
+        value = replace_all(value, ".", "/")
+
+        regex = re.compile("[^a-zA-Z0-9-./]")
+        value = regex.sub('', value)  # First parameter is the replacement, second parameter is your input string
+
+        value = replace_all(value, "..", ".")
+
+        value = value[:max_length]
+        value = value.strip(".")
+
+        return value
+
+    @classmethod
     def prepare_email(cls, value) -> str:
         if value is None:
             return ""
@@ -107,7 +134,7 @@ class NamingUtils:
 
         # Copy servers folderstructure
         folder = folder.replace('INBOX.', '')
-        folder = cls.prepare_text(folder, cls.MAX_ATTRIBUTE_LENGTH)
+        folder = cls.prepare_path(folder, cls.MAX_ATTRIBUTE_LENGTH)
         attributes[NamingKey.FOLDER.name] = username + (f"/{folder}" if folder else "")
 
         add_to_attributes(NamingKey.UID, mail.uid)
