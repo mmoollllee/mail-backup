@@ -7,6 +7,7 @@ import signal
 import socket
 from enum import Enum
 from typing import List, Optional
+from getpass import getpass
 
 from imap_tools import MailBox, AND
 
@@ -72,6 +73,8 @@ class Runner:
     def _connect(self):
         username = Config.get_str(self._config, ConfigKey.IMAP_USERNAME)
         password = Config.get_str(self._config, ConfigKey.IMAP_PASSWORD)
+        if not password:
+            password = getpass(f"Enter you IMAP Password for {username}: ")
         if not self._host or not username or not password:
             raise MessageException("empty IMAP credentials!")
 

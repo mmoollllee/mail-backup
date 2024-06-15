@@ -42,6 +42,6 @@ __work__/
 
 # misc
 *.log
-mail-backup.yaml
+*.yaml
 
 

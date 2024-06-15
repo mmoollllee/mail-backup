@@ -3,7 +3,7 @@
 
 imap_host:          "your.host"
 imap_username:      "your.email"
-imap_password:      "your.password"
+imap_password:      "your.password"  # leave blank to be asked on execution. It's never a good idea to save passwords in plain text!!!
 
 path:           "../{FOLDER}/{YEAR}{MONTH}{DAY}-{HOUR}{MINUTE}-{SUBJECT}-{FROM}-{UID}.eml"
 # last_days:    7  # only download emails newer the last x days
