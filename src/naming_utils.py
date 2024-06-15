@@ -110,7 +110,7 @@ class NamingUtils:
         add_to_attributes(NamingKey.TO1, cls.prepare_email(mail.to))
         add_to_attributes(NamingKey.SUBJECT, cls.prepare_subject(mail.subject), 50)
 
-        date = mail.date
+        date = mail.date.astimezone(tz=datetime.now().astimezone().tzinfo)
         if date.year < 1971:
             date = datetime(0, 1, 1, 0, 0, 0)
 
