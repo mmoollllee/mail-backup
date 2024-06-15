@@ -10,16 +10,10 @@ cd "$SCRIPT_DIR"
 
 VENV_ACTIVATE="./venv/bin/activate"
 if [ ! -f "$VENV_ACTIVATE" ] ; then
-	echo -e "$SCRIPT_NAME\nerror: venv environment doesn't exist!"
-	exit 1
+	echo "$SCRIPT_NAME\nvenv environment doesn't exist. Creating and installing dependencies..."
+	python -m venv venv
+	./venv/bin/pip install --upgrade -r requirements.txt
 fi
 
-source "$VENV_ACTIVATE"
-RC=$?
-if [ $RC -ne 0 ] ; then
-	echo -e "$SCRIPT_NAME\nerror: activating environment failed!"
-	exit 1
-fi
-
-python ./mail_backup.py $@
+./venv/bin/python ./mail_backup.py $@
 exit $?
